@@ -100,20 +100,26 @@ pip install requirements.txt
 
 ## ▶️ How to Run
 
+### a. Run LangGraph
 ```bash
 cd agent
 python app.py
+```
 
-# OR
+To test with LangGraph Studio
+```bash
+langgraph dev
+```
+
+UI Address: https://smith.langchain.com/studio/?baseUrl=http://127.0.0.1:2024
+
+### b. Run MCP with Claude Desktop
+```bash
 cd mcp_agent
 python client.py
 ```
 
-To test with UI chat at https://smith.langchain.com/studio/?baseUrl=http://127.0.0.1:2024:
-```bash
-cd agent
-langgraph dev
-```
+
 
 ## 🧪 Input
 

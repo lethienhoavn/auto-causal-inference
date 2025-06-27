@@ -21,19 +21,8 @@ VARIABLE_INFO_DICT = {
     "activated_ib": "Whether the customer activated Internet Banking"
 }
 
+# Init LLM
 llm = ChatOpenAI(model="gpt-3.5-turbo")
-
-
-def custom_tools_condition(state: MessagesState) -> str:
-    messages = state["messages"]
-    if not messages:
-        raise ValueError(f"No messages found in input state to tool_edge: {state}")
-    
-    ai_message = messages[-1]
-    if hasattr(ai_message, "tool_calls") and len(ai_message.tool_calls) > 0:
-        return "auto_causal_inference"  # <-- your renamed tool node
-    else:
-        return END
 
 
 @tool
@@ -75,7 +64,7 @@ def auto_causal_inference(
                 - Write DoWhy code to estimate effect
 
                 Return the result in JSON format with keys: treatment, outcome, confounders, mediators, effect_modifiers, colliders, instruments, causal_graph, dowhy_code.
-                All in valid JSON
+                All in valid JSON, properly escaped and parsable. Avoid multiline strings or escape characters like \\n, \\"..."
             """
     response = llm.invoke(prompt)
 

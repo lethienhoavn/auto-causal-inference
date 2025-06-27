@@ -27,7 +27,6 @@ llm = ChatOpenAI(model="gpt-3.5-turbo")
 mcp = FastMCP("CausalInference")
 
 @mcp.tool()
-# @tool
 def auto_causal_inference(
     treatment: str,
     outcome: str

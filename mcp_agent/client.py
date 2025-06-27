@@ -54,13 +54,13 @@ async def run_auto_causal_inference(treatment: str, outcome: str):
         return None
     
 def clean_json_response(s: str) -> str:
-    # Loại bỏ code block markdown ```json ... ```
+    # Remove code block markdown ```json ... ```
     s = s.strip()
     s = re.sub(r"^```json\s*", "", s)
     s = re.sub(r"\s*```$", "", s)
     return s.strip()
 
-# 1. tool_calling node: dùng LLM để xác định biến
+# 1. tool_calling node: use LLM to identify causal variables 
 def tool_calling(state: CustomState) -> CustomState:
     user_msg = next((m for m in reversed(state["messages"]) if isinstance(m, HumanMessage)), None)
     if not user_msg:
@@ -98,7 +98,7 @@ def tool_calling(state: CustomState) -> CustomState:
     except:
         raise ValueError(f"Failed to parse tool_calling output: {parsed}")
 
-# 2. auto_causal_inference node: gọi MCP tool server
+# 2. auto_causal_inference node: call MCP tool server
 async def auto_node(state: CustomState) -> CustomState:
     print("state: ", state)
     treatment = state["treatment"]

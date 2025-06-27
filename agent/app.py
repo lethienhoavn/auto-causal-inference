@@ -6,13 +6,26 @@ from langchain_core.messages import HumanMessage
 from IPython.display import Image, display
 from langgraph.graph import StateGraph, START, END, MessagesState
 from langgraph.prebuilt import ToolNode, tools_condition
-from tools import auto_causal_inference, custom_tools_condition, VARIABLE_INFO_DICT
+from tools import auto_causal_inference, VARIABLE_INFO_DICT, llm
+import typing
 
-# Create LLM instance
-llm = ChatOpenAI(model="gpt-3.5-turbo")
 
 # Bind tool to LLM
 llm_with_tools = llm.bind_tools([auto_causal_inference])
+
+
+def custom_tools_condition(state: MessagesState) -> str:
+    """Return the next node to execute."""
+    messages = state["messages"]
+    if not messages:
+        raise ValueError(f"No messages found in input state to tool_edge: {state}")
+    
+    ai_message = messages[-1]
+    if hasattr(ai_message, "tool_calls") and len(ai_message.tool_calls) > 0:
+        return "tool" 
+    
+    return "__end__"
+    
 
 # Node for calling LLM
 def tool_calling(state: MessagesState):
@@ -38,13 +51,20 @@ def tool_calling(state: MessagesState):
     
     return {"messages": [llm_with_tools.invoke([HumanMessage(content=full_prompt)])]}
 
+
 # Define graph
 builder = StateGraph(MessagesState)
 builder.add_node("tool_calling", tool_calling)
 builder.add_node("auto_causal_inference", ToolNode([auto_causal_inference]))
 
 builder.add_edge(START, "tool_calling")
-builder.add_conditional_edges("tool_calling", custom_tools_condition)
+builder.add_conditional_edges("tool_calling", 
+                              path=custom_tools_condition,
+                              path_map={
+                                    "tool": "auto_causal_inference",
+                                    "__end__": END,
+                                }
+                                )
 builder.add_edge("auto_causal_inference", END)
 
 graph = builder.compile()
