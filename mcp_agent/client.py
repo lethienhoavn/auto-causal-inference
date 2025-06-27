@@ -62,7 +62,7 @@ def clean_json_response(s: str) -> str:
 
 # 1. tool_calling node: dùng LLM để xác định biến
 def tool_calling(state: CustomState) -> CustomState:
-    user_msg = next((m for m in state['messages'] if isinstance(m, HumanMessage)), None)
+    user_msg = next((m for m in reversed(state["messages"]) if isinstance(m, HumanMessage)), None)
     if not user_msg:
         raise ValueError("No user input message")
 

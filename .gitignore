@@ -3,6 +3,7 @@ node_modules/
 venv/
 __pycache__/
 config/.env
+.langgraph_api/
 
 # files
 .env

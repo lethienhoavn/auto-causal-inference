@@ -89,6 +89,10 @@ def auto_causal_inference(
         with sqlite3.connect("data/bank.db") as conn:
             df = pd.read_sql_query("SELECT * FROM customer_data", conn)
 
+        # Cast categorical columns to string to avoid category mismatch
+        for col in df.select_dtypes(include="object").columns:
+            df[col] = df[col].astype(str)
+
         # Prepare model
         model = CausalModel(
             data=df,

@@ -91,7 +91,7 @@ auto_causal_inference/
 ## 📦 Requirements
 
 
-- Python 3.10+
+- Python 3.11
 - Install dependencies:
 
 ```bash
@@ -107,6 +107,12 @@ python app.py
 # OR
 cd mcp_agent
 python client.py
+```
+
+To test with UI chat at https://smith.langchain.com/studio/?baseUrl=http://127.0.0.1:2024:
+```bash
+cd agent
+langgraph dev
 ```
 
 ## 🧪 Input

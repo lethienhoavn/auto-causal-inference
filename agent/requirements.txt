@@ -1,9 +1,13 @@
 langgraph 
+langgraph-cli[inmem]
+networkx<3.0
 dowhy 
 pandas 
+scipy<1.13.0
 statsmodels
 db-sqlite3
 langchain-core
 langchain_openai
 mcp[cli]
+IPython
 httpx
