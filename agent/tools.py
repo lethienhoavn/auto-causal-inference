@@ -5,6 +5,7 @@ from langgraph.graph import END, MessagesState
 import json
 import sqlite3
 from dowhy import CausalModel
+from sklearn.preprocessing import LabelEncoder
 import pandas as pd
 
 
@@ -89,9 +90,11 @@ def auto_causal_inference(
         with sqlite3.connect("data/bank.db") as conn:
             df = pd.read_sql_query("SELECT * FROM customer_data", conn)
 
-        # Cast categorical columns to string to avoid category mismatch
+        # Convert categorical columns to strings then encode
         for col in df.select_dtypes(include="object").columns:
             df[col] = df[col].astype(str)
+            le = LabelEncoder()
+            df[col] = le.fit_transform(df[col])    
 
         # Prepare model
         model = CausalModel(

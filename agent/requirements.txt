@@ -4,6 +4,7 @@ networkx<3.0
 dowhy 
 pandas 
 scipy<1.13.0
+scikit-learn
 statsmodels
 db-sqlite3
 langchain-core

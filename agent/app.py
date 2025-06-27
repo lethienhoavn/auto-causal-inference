@@ -60,44 +60,46 @@ display(Image(graph.get_graph().draw_mermaid_png()))
 
 
 
-# from langchain_core.messages import HumanMessage
-# from langchain_core.messages import ToolMessage
-# import json
+from langchain_core.messages import HumanMessage
+from langchain_core.messages import ToolMessage
+import json
 
-# # human_prompt = "Does offering a promotion increase digital product activation ?"
+human_prompt = "Does offering a promotion increase digital product activation ?"
 # human_prompt = "Do branch visits increase engagement?"
+# human_prompt = "Does education level affect income? "
+# human_prompt = "Does channel preference affect IB usage?"
 
-# messages = [HumanMessage(content=human_prompt)]
-# messages = graph.invoke({"messages": messages})
+messages = [HumanMessage(content=human_prompt)]
+messages = graph.invoke({"messages": messages})
 
-# for m in messages['messages']:
-#     m.pretty_print()
+for m in messages['messages']:
+    m.pretty_print()
 
-# #
-# print("\n\n===========================================================================")
-# print("Detailed result of Causal Inference:")
-# tool_msg = next((m for m in messages["messages"] if isinstance(m, ToolMessage)), None)
+#
+print("\n\n===========================================================================")
+print("Detailed result of Causal Inference:")
+tool_msg = next((m for m in messages["messages"] if isinstance(m, ToolMessage)), None)
 
-# if tool_msg:
-#     try:
-#         result = json.loads(tool_msg.content)
-#         for key, value in result.items():
-#             print(f"\n🔑 {key}:\n")
-#             if isinstance(value, list):
-#                 for item in value:
-#                     print(f"  - {item}")
-#             else:
-#                 if key == "causal_graph":
-#                     # Extract edges from DOT string
-#                     lines = value.strip().replace("digraph {", "").replace("}", "").strip().split(";")
-#                     for line in lines:
-#                         if "->" in line:
-#                             src, dst = map(str.strip, line.strip().split("->"))
-#                             print(f"  {src} → {dst}")
-#                 else:
-#                     print(value)
-#     except json.JSONDecodeError as e:
-#         print("❌ Failed to parse tool content as JSON.")
-#         print("Raw content:", tool_msg.content)
-# else:
-#     print("❌ No ToolMessage found in output.")
+if tool_msg:
+    try:
+        result = json.loads(tool_msg.content)
+        for key, value in result.items():
+            print(f"\n🔑 {key}:\n")
+            if isinstance(value, list):
+                for item in value:
+                    print(f"  - {item}")
+            else:
+                if key == "causal_graph":
+                    # Extract edges from DOT string
+                    lines = value.strip().replace("digraph {", "").replace("}", "").strip().split(";")
+                    for line in lines:
+                        if "->" in line:
+                            src, dst = map(str.strip, line.strip().split("->"))
+                            print(f"  {src} → {dst}")
+                else:
+                    print(value)
+    except json.JSONDecodeError as e:
+        print("❌ Failed to parse tool content as JSON.")
+        print("Raw content:", tool_msg.content)
+else:
+    print("❌ No ToolMessage found in output.")
