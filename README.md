@@ -92,6 +92,7 @@ auto_causal_inference/
 
 
 - Python 3.11
+- Claude Desktop (to run MCP)
 - Install dependencies:
 
 ```bash
@@ -111,7 +112,7 @@ To test with LangGraph Studio
 langgraph dev
 ```
 
-UI Address: https://smith.langchain.com/studio/?baseUrl=http://127.0.0.1:2024
+UI Address is available at: https://smith.langchain.com/studio/?baseUrl=http://127.0.0.1:2024
 
 ### b. Run MCP with Claude Desktop
 ```bash

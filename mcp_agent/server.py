@@ -2,7 +2,6 @@ from dotenv import load_dotenv
 load_dotenv()
 
 from mcp.server.fastmcp import FastMCP
-from langchain_core.tools import tool
 from typing import Dict
 import sqlite3
 import pandas as pd
@@ -84,7 +83,7 @@ def auto_causal_inference(
         estimand = model.identify_effect()
         estimate = model.estimate_effect(estimand, method_name="backdoor.linear_regression")
         ate = estimate.value
-        result["causal_effect"] = ate
+        result["causal_effect"] = float(ate)
 
         summary_prompt = f"""
             The ATE of `{treatment}` on `{outcome}` is {ate:.4f}.
@@ -103,5 +102,6 @@ def auto_causal_inference(
     return result
 
 if __name__ == "__main__":
+    print("🔵 Starting MCP server...")
     mcp.run()
-    print("Start server successfully !")
+    print("🔴 Server has exited!")  # Nếu thấy dòng này ngay sau, nghĩa là server thoát sớm

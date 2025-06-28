@@ -14,8 +14,8 @@ from openai import OpenAI
 load_dotenv()
 
 server_params = StdioServerParameters(
-    command="python",
-    args=["server.py"],
+    command="C:\\Users\\hangh\\Miniconda3\\envs\\python311\\python.exe",
+    args=["D:\\H\\TCB\\auto_causal_inference\\mcp_agent\\server.py"],
 )
 
 class CustomState(TypedDict):
@@ -48,9 +48,9 @@ async def run_auto_causal_inference(treatment: str, outcome: str):
                 return json.loads(result.content[0].text)
 
     except Exception as e:
-        print("❌ Error during tool execution:")
-        import traceback
-        traceback.print_exc()
+        # print("Error during tool execution:")
+        # import traceback
+        # traceback.print_exc()
         return None
     
 def clean_json_response(s: str) -> str:
@@ -93,14 +93,14 @@ def tool_calling(state: CustomState) -> CustomState:
     import json
     try:
         extracted = json.loads(parsed)
-        print("extracted: ", extracted)
+        # print("extracted: ", extracted)
         return {"treatment": extracted["treatment"], "outcome": extracted["outcome"], "messages": state["messages"]}
     except:
         raise ValueError(f"Failed to parse tool_calling output: {parsed}")
 
 # 2. auto_causal_inference node: call MCP tool server
 async def auto_node(state: CustomState) -> CustomState:
-    print("state: ", state)
+    # print("state: ", state)
     treatment = state["treatment"]
     outcome = state["outcome"]
 
@@ -124,12 +124,12 @@ def build_graph():
 async def main():
     graph = build_graph()
 
-    user_query = "Does offering a promotion increase activation of Internet Banking?"
-    input_state = {"messages": [HumanMessage(content=user_query)]}
-    result = await graph.ainvoke(input_state)
+    # user_query = "Does offering a promotion increase activation of Internet Banking?"
+    # input_state = {"messages": [HumanMessage(content=user_query)]}
+    # result = await graph.ainvoke(input_state)
 
-    for m in result["messages"]:
-        print(m.content)
+    # for m in result["messages"]:
+    #     print(m.content)
 
 if __name__ == "__main__":
     asyncio.run(main())
