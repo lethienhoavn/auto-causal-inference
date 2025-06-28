@@ -1,125 +1,61 @@
 from dotenv import load_dotenv
 load_dotenv()
 
-from langchain_openai import ChatOpenAI
 from langchain_core.messages import HumanMessage
-from IPython.display import Image, display
 from langgraph.graph import StateGraph, START, END, MessagesState
-from langgraph.prebuilt import ToolNode, tools_condition
-from tools import auto_causal_inference, VARIABLE_INFO_DICT, llm
-import typing
+from langgraph.prebuilt import ToolNode
+from tools import (
+    tool_calling,
+    custom_tools_condition,
+    identify_causal_relationships,
+    identify_causal_variables,
+    compute_ate,
+    tune_model,
+    refutation_test,
+    summarize_result,
+    CausalState
+)
+from IPython.display import Image, display
+import json
+from typing import Dict, Any, List
 
 
-# Bind tool to LLM
-llm_with_tools = llm.bind_tools([auto_causal_inference])
-
-
-def custom_tools_condition(state: MessagesState) -> str:
-    """Return the next node to execute."""
-    messages = state["messages"]
-    if not messages:
-        raise ValueError(f"No messages found in input state to tool_edge: {state}")
-    
-    ai_message = messages[-1]
-    if hasattr(ai_message, "tool_calls") and len(ai_message.tool_calls) > 0:
-        return "tool" 
-    
-    return "__end__"
-    
-
-# Node for calling LLM
-def tool_calling(state: MessagesState):
-    VARIABLE_DESC = "The available variables are:\n" + "\n".join(
-        [f"- {var}: {desc}" for var, desc in VARIABLE_INFO_DICT.items()]
-    )
-    
-    # Extract original user question
-    user_msg = next((m for m in reversed(state["messages"]) if isinstance(m, HumanMessage)), None)
-    if not user_msg:
-        raise ValueError("Missing user question.")
-
-    full_prompt = f"""
-                    You are a causal inference assistant.
-                    {VARIABLE_DESC}
-
-                    User question:
-                    "{user_msg.content.strip()}"
-
-                    Please identify the treatment and outcome variables from the question, 
-                    and use the `auto_causal_inference` tool to perform causal inference.
-                  """
-    
-    return {"messages": [llm_with_tools.invoke([HumanMessage(content=full_prompt)])]}
-
-
-# Define graph
-builder = StateGraph(MessagesState)
+# Build graph with nodes
+builder = StateGraph(CausalState)
 builder.add_node("tool_calling", tool_calling)
-builder.add_node("auto_causal_inference", ToolNode([auto_causal_inference]))
+builder.add_node("identify_causal_relationships", ToolNode([identify_causal_relationships]))
+builder.add_node("identify_causal_variables", identify_causal_variables)
+builder.add_node("compute_ate", compute_ate)
+builder.add_node("tune_model", tune_model)
+builder.add_node("refutation_test", refutation_test)
+builder.add_node("summarize_result", summarize_result)
 
+# Define edges to pass data from one node to next
 builder.add_edge(START, "tool_calling")
 builder.add_conditional_edges("tool_calling", 
                               path=custom_tools_condition,
                               path_map={
-                                    "tool": "auto_causal_inference",
+                                    "tool": "identify_causal_relationships",
                                     "__end__": END,
                                 }
                                 )
-builder.add_edge("auto_causal_inference", END)
+builder.add_edge("identify_causal_relationships", "identify_causal_variables")
+builder.add_edge("identify_causal_variables", "compute_ate")
+builder.add_edge("compute_ate", "tune_model")
+builder.add_edge("tune_model", "refutation_test")
+builder.add_edge("refutation_test", "summarize_result")
+builder.add_edge("summarize_result", END)
 
 graph = builder.compile()
 
-# View
-display(Image(graph.get_graph().draw_mermaid_png()))
+# Display graph diagram
+# display(Image(graph.get_graph().draw_mermaid_png()))
 
 
-
-
-
-
-
-
-
-from langchain_core.messages import HumanMessage
-from langchain_core.messages import ToolMessage
-import json
-
-human_prompt = "Does offering a promotion increase digital product activation ?"
-# human_prompt = "Do branch visits increase engagement?"
-# human_prompt = "Does education level affect income? "
-# human_prompt = "Does channel preference affect IB usage?"
-
+# Test run
+human_prompt = "Does offering a promotion increase digital product activation?"
 messages = [HumanMessage(content=human_prompt)]
 messages = graph.invoke({"messages": messages})
 
 for m in messages['messages']:
     m.pretty_print()
-
-#
-print("\n\n===========================================================================")
-print("Detailed result of Causal Inference:")
-tool_msg = next((m for m in messages["messages"] if isinstance(m, ToolMessage)), None)
-
-if tool_msg:
-    try:
-        result = json.loads(tool_msg.content)
-        for key, value in result.items():
-            print(f"\n🔑 {key}:\n")
-            if isinstance(value, list):
-                for item in value:
-                    print(f"  - {item}")
-            else:
-                if key == "causal_graph":
-                    # Extract edges from DOT string
-                    lines = value.strip().replace("digraph {", "").replace("}", "").strip().split(";")
-                    for line in lines:
-                        if "->" in line:
-                            src, dst = map(str.strip, line.strip().split("->"))
-                            print(f"  {src} → {dst}")
-                else:
-                    print(value)
-    except json.JSONDecodeError as e:
-        print("❌ Failed to parse tool content as JSON.")
-        print("Raw content:", tool_msg.content)
-else:
-    print("❌ No ToolMessage found in output.")

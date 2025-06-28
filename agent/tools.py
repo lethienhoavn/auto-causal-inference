@@ -1,12 +1,40 @@
-from typing import List, Dict
+from typing import Dict, Any, List
 from langchain_core.tools import tool
 from langchain_openai import ChatOpenAI
-from langgraph.graph import END, MessagesState
 import json
 import sqlite3
+import pandas as pd
 from dowhy import CausalModel
 from sklearn.preprocessing import LabelEncoder
-import pandas as pd
+from causaltune import CausalTune
+from causaltune.data_utils import CausalityDataset
+from causalnex.structure.notears import from_pandas
+from sklearn.preprocessing import StandardScaler
+from causalnex.structure import StructureModel
+from causalnex.structure.notears import from_numpy
+from langgraph.graph import MessagesState
+from langchain_core.messages import HumanMessage, AIMessage
+
+
+class CausalState(MessagesState):
+    treatment: str
+    outcome: str
+    causal_graph: str
+    variables: List[str]
+    confounders: List[str]
+    mediators: List[str]
+    colliders: List[str]
+    instruments: List[str]
+    effect_modifiers: List[str]
+    ate: float
+    best_estimator: str
+    best_score: float
+    best_base_learner: str
+    refutation_passed: bool
+    refutation_results: List[Dict[str, str]]
+    summary_result: str
+    fixes_proposed: str
+    error: str
 
 
 VARIABLE_INFO_DICT = {
@@ -25,106 +53,294 @@ VARIABLE_INFO_DICT = {
 llm = ChatOpenAI(model="gpt-3.5-turbo")
 
 
+def tool_calling(state: CausalState):
+    VARIABLE_DESC = "The available variables are:\n" + "\n".join(
+        [f"- {var}: {desc}" for var, desc in VARIABLE_INFO_DICT.items()]
+    )
+    
+    # Extract original user question
+    user_msg = next((m for m in reversed(state["messages"]) if isinstance(m, HumanMessage)), None)
+    if not user_msg:
+        raise ValueError("Missing user question.")
+
+    full_prompt = f"""
+                    You are a causal inference assistant.
+                    {VARIABLE_DESC}
+
+                    User question:
+                    "{user_msg.content.strip()}"
+
+                    Please identify the treatment and outcome variables from the question, 
+                    and use the `identify_causal_relationships` tool to identify causal relationships.
+                  """
+    
+    return {"messages": [llm_with_tools.invoke([HumanMessage(content=full_prompt)])]}
+
+
+def custom_tools_condition(state: CausalState) -> str:
+    """Return the next node to execute."""
+    messages = state["messages"]
+    if not messages:
+        raise ValueError(f"No messages found in input state to tool_edge: {state}")
+    
+    ai_message = messages[-1]
+    if hasattr(ai_message, "tool_calls") and len(ai_message.tool_calls) > 0:
+        return "tool" 
+    
+    return "__end__"
+
+
 @tool
-def auto_causal_inference(
-    treatment: str,
-    outcome: str
-) -> Dict[str, str]:
+def identify_causal_relationships(treatment: str, outcome: str):
     """
-    LLM suggests variable roles and DoWhy code, then code is executed on real SQLite data.
-
-    Args:
-        treatment: Treatment variable
-        outcome: Outcome variable
-
-    Returns:
-        Dict with causal role analysis, causal graph (dot), DoWhy code and result analysis
+    Load data, run CausalNex to learn causal structure, return causal graph dot string.
     """
-    variables = list(VARIABLE_INFO_DICT.keys())
+    with sqlite3.connect("data/bank.db") as conn:
+        df = pd.read_sql_query("SELECT * FROM customer_data", conn)
 
-    # Step 1: Prompt LLM
+    # Encode categorical features
+    for col in df.select_dtypes(include="object").columns:
+        df[col] = df[col].astype("category").cat.codes
+
+    scaler = StandardScaler()
+    df_scaled = pd.DataFrame(scaler.fit_transform(df), columns=df.columns)
+    df_scaled = df_scaled.fillna(0)
+
+    sm = from_pandas(df_scaled, w_threshold=0.2, max_iter=1000)
+    sm.remove_edges_below_threshold(0.01)
+
+    dot_str = "digraph {\n"
+    for src, dst in sm.edges():
+        dot_str += f"  {src} -> {dst};\n"
+    dot_str += "}"
+    
+    # Also return dataframe columns for next nodes
+    return {"treatment": treatment, "outcome": outcome, "causal_graph": dot_str, "variables": list(df.columns)}
+
+
+def identify_causal_variables(state: CausalState):
+    """
+    Use LLM to classify variables into confounders, mediators, effect modifiers, colliders, instruments
+    based on causal_graph and given treatment/outcome.
+    """
+
+    # Tìm ToolMessage mới nhất
+    tool_msg = next(
+        (msg for msg in reversed(state["messages"]) if msg.__class__.__name__ == "ToolMessage"),
+        None
+    )
+    if not tool_msg:
+        raise ValueError("No ToolMessage found in messages")
+
+    result = json.loads(tool_msg.content)
+
+    # Lấy các trường từ ToolMessage
+    new_state = {}
+    new_state['causal_graph'] = result["causal_graph"]
+    new_state['variables'] = result["variables"]
+    new_state['treatment'] = result["treatment"]
+    new_state['outcome'] = result["outcome"]
+
+
     prompt = f"""
-                You are a causal inference expert.
+    You are a causal inference expert.
 
-                Given variables: {variables}
-                Treatment: {treatment}
-                Outcome: {outcome}
+    Given the causal graph DOT:
+    {new_state['causal_graph']}
 
-                Classify other variables as:
-                - Treatment
-                - Outcome
-                - Confounders
-                - Mediators
-                - Effect Modifiers
-                - Colliders
-                - Instruments
+    Treatment variable: {new_state['treatment']}
+    Outcome variable: {new_state['outcome']}
+    Variables: {new_state['variables']}
 
-                Then:
-                - Draw DOT causal graph
-                - Write DoWhy code to estimate effect
+    Classify other variables as:
+    - Confounders
+    - Mediators
+    - Effect Modifiers
+    - Colliders
+    - Instruments
 
-                Return the result in JSON format with keys: treatment, outcome, confounders, mediators, effect_modifiers, colliders, instruments, causal_graph, dowhy_code.
-                All in valid JSON, properly escaped and parsable. Avoid multiline strings or escape characters like \\n, \\"..."
-            """
+    Return valid JSON with keys: confounders, mediators, effect_modifiers, colliders, instruments.
+    """
     response = llm.invoke(prompt)
-
     try:
-        result = json.loads(response.content)
+        var_roles = json.loads(response.content)
     except Exception:
-        return {"error": "LLM failed to return valid JSON", "raw": response.content}
+        var_roles = {"error": "LLM failed to return valid JSON", "raw": response.content}
 
-    # Step 2: Execute DoWhy code
+    new_state.update(var_roles)
+    return {
+        **new_state,
+        "messages": state["messages"] + [AIMessage(content="Identified causal roles. " + json.dumps(var_roles))]
+    }
+
+
+def compute_ate(state: CausalState):
+    """
+    Run DoWhy causal model to identify and estimate treatment effect (ATE).
+    """
     try:
-        # Load real data
         with sqlite3.connect("data/bank.db") as conn:
             df = pd.read_sql_query("SELECT * FROM customer_data", conn)
-
-        # Convert categorical columns to strings then encode
+        # Preprocess categorical variables
         for col in df.select_dtypes(include="object").columns:
             df[col] = df[col].astype(str)
             le = LabelEncoder()
-            df[col] = le.fit_transform(df[col])    
-
-        # Prepare model
+            df[col] = le.fit_transform(df[col])
+        
         model = CausalModel(
             data=df,
-            treatment=treatment,
-            outcome=outcome,
-            common_causes=result.get("confounders", []) or None,
-            instruments=result.get("instruments", []) or None,
-            effect_modifiers=result.get("effect_modifiers", []) or None,
+            treatment=state['treatment'],
+            outcome=state['outcome'],
+            common_causes=state['confounders'] or None,
+            instruments=state['instruments'] or None,
+            effect_modifiers=state['effect_modifiers'] or None,
         )
 
         identified_estimand = model.identify_effect()
         estimate = model.estimate_effect(identified_estimand, method_name="backdoor.linear_regression")
         ate = estimate.value
 
-        result["causal_effect"] = ate
+        return {
+            "ate": ate,
+            "messages": state["messages"] + [AIMessage(content=f"Computed ATE: {ate:.4f}")]
+        }
+    except Exception as e:
+        return {"error": str(e), "messages": state["messages"]}
 
-        # Step 3: LLM generates natural language explanation
-        summary_prompt = f"""
-                            You are a causal inference analyst.
 
-                            The estimated Average Treatment Effect (ATE) of `{treatment}` on `{outcome}` is {ate:.4f}.
+def tune_model(state: CausalState):
+    """
+    CausalTune: choose best estimator based on pre-defined list and data.
+    """
+    try:
+        with sqlite3.connect("data/bank.db") as conn:
+            df = pd.read_sql_query("SELECT * FROM customer_data", conn)
+        for col in df.select_dtypes(include="object").columns:
+            df[col] = df[col].astype(str)
+            le = LabelEncoder()
+            df[col] = le.fit_transform(df[col])
 
-                            Additional information:
-                            - Confounders: {', '.join(result.get("confounders", []) or ['None'])}
-                            - Effect Modifiers: {', '.join(result.get("effect_modifiers", []) or ['None'])}
-                            - Instrumental Variables: {', '.join(result.get("instruments", []) or ['None'])}
+        estimators = ["S-learner", "T-learner", "X-learner"]
+        # base_learners = ["random_forest", "neural_network"]
 
-                            Please write a short, clear explanation (3-4 sentences) that:
-                            1. States whether there is a causal effect and how strong it is, says in %. Small ATE (absolute value < 0.01) means no causal effect between treatment and outcome.
-                               Remember that ATE is the % increase of outcome when everybody is applied the treatment.
-                            2. Mentions any confounders that may have influenced both treatment and outcome.
-                            3. Notes any effect modifiers or instruments that might have impacted estimation.
+        cd = CausalityDataset(data=df, treatment=state['treatment'], outcomes=[state["outcome"]],
+                            common_causes=state['confounders'])
+        cd.preprocess_dataset()
 
-                            Avoid technical jargon; use plain, business-friendly language, do not use term confounders, effect modifiers, instrumental variables, treatment, outcome, ATE.
-                        """
+        estimators = ["SLearner", "TLearner"]
+        # base_learners = ["random_forest", "neural_network"]
 
-        summary_response = llm.invoke(summary_prompt)
-        result["causal_summary"] = summary_response.content.strip()
+        ct = CausalTune(
+            estimator_list=estimators,
+            metric="energy_distance",
+            verbose=1,
+            components_time_budget=10, # in seconds trial for each model
+            outcome_model="auto",
+        )
+
+        # run causaltune
+        ct.fit(data=cd, outcome=cd.outcomes[0])
+        
+        return {
+            "best_estimator": ct.best_estimator,
+            "best_score": ct.best_score,
+            "messages": state["messages"] + [AIMessage(content=f"Best estimator: {ct.best_estimator}, score: {ct.best_score}")]
+        }
 
     except Exception as e:
-        result["execution_error"] = str(e)
+        return {"error": str(e), "messages": state["messages"]}
 
-    return result
+
+def refutation_test(state: CausalState):
+    """
+    Run DoWhy refutation tests on the best estimate.
+    """
+    try:
+        with sqlite3.connect("data/bank.db") as conn:
+            df = pd.read_sql_query("SELECT * FROM customer_data", conn)
+        for col in df.select_dtypes(include="object").columns:
+            df[col] = df[col].astype(str)
+            le = LabelEncoder()
+            df[col] = le.fit_transform(df[col])
+
+        model = CausalModel(
+            data=df,
+            treatment=state['treatment'],
+            outcome=state['outcome'],
+            common_causes=state['confounders'] or None,
+            instruments=state['instruments'] or None,
+            effect_modifiers=state['effect_modifiers'] or None,
+        )
+        identified_estimand = model.identify_effect()
+        estimate = model.estimate_effect(identified_estimand, method_name="backdoor.linear_regression")
+
+        # Run refutation methods
+        refute_results = []
+        refute_methods = [
+            "placebo_treatment_refuter",
+            "random_common_cause",
+            "data_subset_refuter"
+        ]
+        for method in refute_methods:
+            refute = model.refute_estimate(identified_estimand, estimate, method_name=method)
+            refute_results.append({"method": method, "result": str(refute)})
+
+        pass_test = all("fail" not in r["result"].lower() for r in refute_results)
+
+        return {
+            "refutation_results": refute_results,
+            "refutation_passed": pass_test,
+            "messages": state["messages"] + [AIMessage(content=f"Refutation passed: {pass_test}.\nRefutation results: {refute_results}")]
+        }
+
+    except Exception as e:
+        return {"error": str(e), "messages": state["messages"]}
+
+
+def summarize_result(state: CausalState):
+    """
+    Summarize the causal effect and refutation results with LLM, propose fixes if needed.
+    """
+    fixes = []
+    if state.get('refutation_passed', "") == "":
+        fixes = [
+            "Check for omitted confounders or measurement errors.",
+            "Collect more or better quality data.",
+            "Re-examine and improve the causal graph.",
+            "Consider better instrumental variables."
+        ]
+
+    prompt = f"""
+    The estimated Average Treatment Effect (ATE) is {state['ate']:.4f}.
+
+    Confounders: {state['confounders'] or 'None'}
+    Effect Modifiers: {state['effect_modifiers'] or 'None'}
+    Instrumental Variables: {state['instruments'] or 'None'}
+
+    Refutation test results:
+    {json.dumps(state['refutation_results'], indent=2)}
+
+    Refutation tests passed: {state['refutation_passed']}
+
+    If the refutation tests did not pass, suggest fixes:
+    {fixes}
+
+    Please write a clear, business-friendly summary explaining:
+    - The strength and significance of the causal effect.
+    - Confidence based on refutation tests.
+    - Suggested next steps if refutation tests failed.
+    - Do not mention instruction about the case refutation test fails when all the tests passed
+    Avoid technical jargon.
+    """
+    response = llm.invoke(prompt)
+    
+    return {
+        "summary_result": response.content.strip(),
+        "fixes_proposed": fixes if not state['refutation_passed'] else [],
+        "messages": state["messages"] + [AIMessage(content=response.content.strip())]
+    }
+
+
+
+# Bind tool to LLM
+llm_with_tools = llm.bind_tools([identify_causal_relationships])

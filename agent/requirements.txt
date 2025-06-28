@@ -1,7 +1,7 @@
 langgraph 
 langgraph-cli[inmem]
 networkx<3.0
-dowhy 
+dowhy==0.9.1 
 pandas 
 scipy<1.13.0
 scikit-learn
@@ -12,3 +12,5 @@ langchain_openai
 mcp[cli]
 IPython
 httpx
+causalnex
+causaltune

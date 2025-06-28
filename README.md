@@ -1,6 +1,10 @@
 # Auto Causal Inference for Banking
 
-## Motivation
+## 🗂️ Notes about Version Changes
+- `v1.1 (current version)`: integrate **CausalNex**, **CausalTune**, **Refutation Test**,... to make Auto-Causal more roburst
+- `v1.0` ([link](https://github.com/lethienhoavn/auto-causal-inference/tree/e8790d0468d93e1c904ade457cacbbb7159994d5)): rely on the strong semantic understanding & reasoning capability of **LLM** to identify entire causal structure (causal relationships, causal variables,...) on the fly
+
+## 💡Motivation
 
 One of the most challenging aspects of **causal inference** is not running the estimation algorithm, but **correctly identifying the causal roles of variables** in the system — such as **confounders**, **mediators**, **colliders**, **effect modifiers**, and **instruments**.
 
@@ -9,7 +13,7 @@ This task typically requires domain expertise and experience, because:
 * Simply adding **more variables** to the model does **not guarantee better causal estimates** — in fact, it can **bias** the results if colliders or mediators are adjusted incorrectly.
 * Traditional approaches often rely on **manual DAG construction** and careful pre-analysis.
 
-> ✅ **Auto Causal Inference** was created to solve this problem using **LLMs (Large Language Models)** — allowing users to specify only the **treatment** and **outcome**, and automatically infer variable roles and a suggested causal graph.
+> ✅ **Auto Causal Inference (Auto-Causal)** was created to solve this problem using **LLMs (Large Language Models)** — allowing users to specify only the **treatment** and **outcome**, and automatically infer variable roles and a suggested causal graph.
 
 This enables:
 
@@ -19,21 +23,28 @@ This enables:
 * More transparency and reproducibility in the inference process
 
 
-## 🧠 Introduction
+## 🧠 How Auto-Causal Works:
 
-This project demonstrates an automated Causal Inference pipeline for banking use cases, where users only specify:
+This project demonstrates an automated Causal Inference pipeline for banking use cases, where users only need to specify:
 
 - a `treatment` variable
 - an `outcome` variable
 
-The app automatically:
-- Uses a fixed list of variables (`age`, `income`, `education`, etc.)
-- Calls an LLM to suggest causal structure (confounders, mediators, etc.)
-- Returns a causal graph and executable DoWhy code
+The app will automatically perform these steps:
+- Search relevant variables in the database
+- Find causal relationships with CausalNex
+- Identify causal variables
+- Perform Causal Model with DoWhy
+- Seek for the best estimators & base learners with CausalTune
+- Run refutation test to check the causal structure
+- Propose fixing solutions if refutation tests do not pass (and make re-run loop)
 
----
+<div align="center">
+<img src="./images/auto-causal-v2.png" alt="Auto Causal V2" width="600" align=/>
+</div>
 
-### 💼 Example use cases
+
+## 💼 Example use cases
 
 | Scenario                                      | Treatment         | Outcome              |
 |-----------------------------------------------|--------------------|-----------------------|
@@ -91,7 +102,7 @@ auto_causal_inference/
 ## 📦 Requirements
 
 
-- Python 3.11
+- Python 3.10
 - Claude Desktop (to run MCP)
 - Install dependencies:
 
@@ -130,19 +141,7 @@ User asks: "Does offering a promotion increase digital product activation ?"
 
 ## 📤 Output
 
-```json
-{
-  "confounders": ["age", "income", "education"],
-  "mediators": ["branch_visits"],
-  "effect_modifiers": ["channel_preference"],
-  "colliders": ["customer_engagement"],
-  "instruments": ["region_code"],
-  "causal_graph": "...DOT format...",
-  "dowhy_code": "...Python code..."
-}
-```
-
-### Causal Inference Relationships
+### Causal Relationships
 
 ```
 age -> promotion_offer;
@@ -164,7 +163,21 @@ channel_preference -> activated_ib;
 promotion_offer -> activated_ib
 ```
 
-### DoWhy code
+### Causal Variables
+
+```json
+{
+  "confounders": ["age", "income", "education"],
+  "mediators": ["branch_visits"],
+  "effect_modifiers": ["channel_preference"],
+  "colliders": ["customer_engagement"],
+  "instruments": ["region_code"],
+  "causal_graph": "...DOT format...",
+  "dowhy_code": "...Python code..."
+}
+```
+
+### Compute Average Treatment Effect (ATE)
 
 ```python
 import dowhy
@@ -184,8 +197,50 @@ estimate = model.estimate_effect(identified_model, method_name='backdoor.propens
 print(estimate)
 ```
 
+### Model Tuning
+
+```python
+estimators = ["S-learner", "T-learner", "X-learner"]
+base_learners = ["random_forest", "neural_network"]
+
+tuner = CausalTune(
+    model=model,
+    estimand=identified_estimand,
+    treatment=treatment,
+    outcome=outcome,
+    confounders=confounders,
+    estimators=estimators,
+    base_learners=base_learners,
+    data=df
+)
+
+best_config = tuner.tune()
+print(f"Best estimator: {best_config['estimator']}")
+print(f"Best base learner: {best_config['base_learner']}")
+```
+
+### Refutation Test
+
+```python
+refute_placebo = model.refute_estimate(identified_estimand, best_estimate, method_name="placebo_treatment_refuter")
+print("Placebo treatment refuter result:", refute_placebo)
+
+refute_random_common_cause = model.refute_estimate(identified_estimand, best_estimate, method_name="random_common_cause_refuter")
+print("Random common cause refuter result:", refute_random_common_cause)
+
+refute_subset = model.refute_estimate(identified_estimand, best_estimate, method_name="data_subset_refuter")
+print("Data subset refuter result:", refute_subset)
+
+all_passed = all(
+    "fail" not in str(test).lower()
+    for test in [refute_placebo, refute_random_common_cause, refute_subset]
+)
+print("Refutation tests passed:", all_passed)
+```
+
 ### Summary of Variable Roles:
 
+```
 | Role                | Variable                     | Why it's assigned this role                                      |
 | ------------------- | ---------------------------- | ---------------------------------------------------------------- |
 | **Confounder**      | `age`, `income`, `education` | Affect both the chance of receiving promotions and IB usage.     |
@@ -195,8 +250,27 @@ print(estimate)
 | **Instrument**      | `region_code`                | Randomized promotion assignment at the regional level.           |
 
 
-### Result Analysis:
+Result Analysis:
 
 1. There is a causal effect between offering promotions and activating internet banking services, with a 15% increase of activating internet banking if we open the promotion for everybody. This shows a strong positive impact of the promotion offer on activation.
 
 2. Factors like age, income, education level could have influenced both the decision to offer promotions and the likelihood of activating internet banking services. These factors may have affected the outcome regardless of the promotion offer.
+```
+
+## 🛠️ Comparison with other Tools / Methods
+
+| 📝 **Criteria**          | 🔍 **CausalNex**            | ⚖️ **DoWhy**                | 🤖 **CausalTune**       | 🚀 **Auto Causal Inference**            |
+| ------------------------ | --------------------------- | --------------------------- | ----------------------- | ----------------------------------------------------- |
+| 🎯 **Main purpose**      | Causal graph learning       | Full causal pipeline        | Auto estimator tuning   | Auto causal Q\&A: discovery → estimation → tuning     |
+| 🔎 **Discovery**         | Yes (NOTEARS, Hill Climb)   | Yes (PC, NOTEARS, LiNGAM)   | No                      | Yes (CausalNex + DoWhy discovery)                     |
+| 🧩 **Confounder ID**     | No                          | Yes                         | No                      | Yes (LLM analyzes graph to ID confounders)            |
+| 📊 **Estimation**        | Limited (Bayesian Nets)     | Rich estimators             | Yes (many learners)     | Yes (DoWhy estimates ATE)                             |
+| ⚙️ **Auto estimator**    | No                          | No                          | Yes                     | Yes (CausalTune auto selects best estimator)          |
+| ✅ **Refutation**         | No                          | Yes                         | No                      | Yes (DoWhy refutation tests)                          |
+| 👤 **User input needed** | Manual graph & methods      | Manual estimator            | Select estimator        | Just ask treatment → outcome question                 |
+| 🤖 **Automation level**  | Low to medium               | Medium                      | High                    | Very high                                             |
+| 📥 **Input data**        | Observational tabular       | Observational + graph       | Observational + model   | Observational + DB metadata                           |
+| 🔄 **Flexibility**       | High structure learning     | High inference & refutation | High tuning             | Very high, combines many tools + LLM                  |
+| 🎯 **Best for**          | Researchers building graphs | Pipeline users              | ML production tuning    | Business users wanting quick causal answers           |
+| 💪 **Strength**          | Good causal graph learning  | Full causal workflow        | Auto estimator tuning   | End-to-end automation + LLM support                   |
+| ⚠️ **Limitations**       | No built-in validation      | No auto tuning              | No discovery/refutation | Depends on data quality, manual check if refute fails |
