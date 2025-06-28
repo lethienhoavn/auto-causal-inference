@@ -238,7 +238,7 @@ all_passed = all(
 print("Refutation tests passed:", all_passed)
 ```
 
-### Summary of Variable Roles:
+### Result Analysis:
 
 ```
 | Role                | Variable                     | Why it's assigned this role                                      |
@@ -250,8 +250,29 @@ print("Refutation tests passed:", all_passed)
 | **Instrument**      | `region_code`                | Randomized promotion assignment at the regional level.           |
 
 
-Result Analysis:
+Best estimator: backdoor.econml.metalearners.TLearner, score: 483.1930697900207
 
+
+Refutation passed: True.
+[   
+    {'method': 'placebo_treatment_refuter', 
+    'result': 'Refute: Use a Placebo Treatment Estimated effect:0.23849549989874572
+                New effect:-0.0004960408910311281
+                p value:0.96'}, 
+    {'method': 'random_common_cause', 
+    'result': 'Refute: Add a random common cause
+                Estimated effect:0.23849549989874572
+                New effect:0.23847067700750038
+                p value:0.98'}, 
+    {'method': 'data_subset_refuter', 
+    'result': 'Refute: Use a subset of data
+                Estimated effect:0.23849549989874572
+                New effect:0.23749715031525756
+                p value:0.96'}
+]
+
+
+Result Summary:
 1. There is a causal effect between offering promotions and activating internet banking services, with a 15% increase of activating internet banking if we open the promotion for everybody. This shows a strong positive impact of the promotion offer on activation.
 
 2. Factors like age, income, education level could have influenced both the decision to offer promotions and the likelihood of activating internet banking services. These factors may have affected the outcome regardless of the promotion offer.
