@@ -201,41 +201,44 @@ print(estimate)
 
 ```python
 estimators = ["S-learner", "T-learner", "X-learner"]
-base_learners = ["random_forest", "neural_network"]
+# base_learners = ["random_forest", "neural_network"]
 
-tuner = CausalTune(
-    model=model,
-    estimand=identified_estimand,
-    treatment=treatment,
-    outcome=outcome,
-    confounders=confounders,
-    estimators=estimators,
-    base_learners=base_learners,
-    data=df
+cd = CausalityDataset(data=df, treatment=state['treatment'], outcomes=[state["outcome"]],
+                    common_causes=state['confounders'])
+cd.preprocess_dataset()
+
+estimators = ["SLearner", "TLearner"]
+# base_learners = ["random_forest", "neural_network"]
+
+ct = CausalTune(
+    estimator_list=estimators,
+    metric="energy_distance",
+    verbose=1,
+    components_time_budget=10, # in seconds trial for each model
+    outcome_model="auto",
 )
 
-best_config = tuner.tune()
-print(f"Best estimator: {best_config['estimator']}")
-print(f"Best base learner: {best_config['base_learner']}")
+# run causaltune
+ct.fit(data=cd, outcome=cd.outcomes[0])
+
+print(f"Best estimator: {ct.best_estimator}")
+print(f"Best score: {ct.best_score}")
 ```
 
 ### Refutation Test
 
 ```python
-refute_placebo = model.refute_estimate(identified_estimand, best_estimate, method_name="placebo_treatment_refuter")
-print("Placebo treatment refuter result:", refute_placebo)
+refute_results = []
+refute_methods = [
+    "placebo_treatment_refuter",
+    "random_common_cause",
+    "data_subset_refuter"
+]
+for method in refute_methods:
+    refute = model.refute_estimate(identified_estimand, estimate, method_name=method)
+    refute_results.append({"method": method, "result": str(refute)})
 
-refute_random_common_cause = model.refute_estimate(identified_estimand, best_estimate, method_name="random_common_cause_refuter")
-print("Random common cause refuter result:", refute_random_common_cause)
-
-refute_subset = model.refute_estimate(identified_estimand, best_estimate, method_name="data_subset_refuter")
-print("Data subset refuter result:", refute_subset)
-
-all_passed = all(
-    "fail" not in str(test).lower()
-    for test in [refute_placebo, refute_random_common_cause, refute_subset]
-)
-print("Refutation tests passed:", all_passed)
+pass_test = all("fail" not in r["result"].lower() for r in refute_results)
 ```
 
 ### Result Analysis:
